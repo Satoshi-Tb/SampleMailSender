@@ -63,7 +63,7 @@ Mail：test_taro@test-unknown.co.jp
 <DIV>住所：〒XXX-XXXX　ＮＮＮＮＮＮＮＮＮＮＮＮＮＮＮＮ</DIV>
 <DIV>TEL：**-****-****　／　FAX：**-****-****</DIV>
 <DIV>URL：<A 
-href='http://www.test-unknown.co.jp'>http://www.test-unknown.co.jp</A></DIV>
+href='http://www.test-unknown.co.jp'>こちらをクリック</A></DIV>
 <DIV>Mail：<A 
 href='mailto:test_taro@test-unknown.co.jp'>test_taro@test-unknown.co.jp</A></DIV>
 <DIV>----------------------------------------------------</DIV></BODY></HTML>"
@@ -136,8 +136,7 @@ href='mailto:test_taro@test-unknown.co.jp'>test_taro@test-unknown.co.jp</A></DIV
     ''' <param name="body"></param>
     ''' <returns></returns>
     Private Function CreateHtmlTextPart(body As String) As TextPart
-        'TODO charsetの指定方法
-        Dim enc = System.Text.Encoding.GetEncoding("shift_jis")
+        Dim enc = System.Text.Encoding.GetEncoding("iso-2022-jp")
         Dim textPart = New TextPart(MimeKit.Text.TextFormat.Html)
         textPart.SetText(enc, body)
         textPart.ContentTransferEncoding = ContentEncoding.Base64
@@ -150,12 +149,26 @@ href='mailto:test_taro@test-unknown.co.jp'>test_taro@test-unknown.co.jp</A></DIV
     ''' </summary>
     ''' <returns></returns>
     Private Function CreateAttachment(filePath As String) As MimePart
+        Dim enc = System.Text.Encoding.GetEncoding("iso-2022-jp")
         Dim mimeType = MimeTypes.GetMimeType(filePath)
         Dim attachment = New MimePart(mimeType)
         attachment.Content = New MimeContent(System.IO.File.OpenRead(filePath))
         attachment.ContentDisposition = New ContentDisposition()
         attachment.ContentTransferEncoding = ContentEncoding.Base64
+
+        '日本語の添付ファイル名について。エンコーディング形式がRFC2231とRFC2047の２通りある。
+        'デフォルトはRFC2231であり、多くのモダンなメーラー（GMailなど）は対応している？
+        'ただし、Outlookなどの一部対応していない（古い？）メーラーの場合、正しく表示できない。
+        'これを回避するため、RFC2047形式を指定する必要がある。
         attachment.FileName = System.IO.Path.GetFileName(filePath)
+        Dim setRfc2047 As Action(Of ParameterList, String) =
+            Sub(plist, key)
+                Dim param = plist.Where(Function(p) p.Name = key).FirstOrDefault
+                If Not param Is Nothing Then param.EncodingMethod = ParameterEncodingMethod.Rfc2047
+            End Sub
+
+        setRfc2047(attachment.ContentType.Parameters, "name")
+        setRfc2047(attachment.ContentDisposition.Parameters, "filename")
 
         Return attachment
     End Function
@@ -184,19 +197,28 @@ href='mailto:test_taro@test-unknown.co.jp'>test_taro@test-unknown.co.jp</A></DIV
             End If
         End If
 
-        '添付ファイル無し
-        If AttachmentFileList.Count() = 0 Then Return documentPart
+        '添付ファイル
+        Return AddAttachment(documentPart)
+
+    End Function
+
+    ''' <summary>
+    ''' 
+    ''' </summary>
+    ''' <param name="body"></param>
+    ''' <returns></returns>
+    Private Function AddAttachment(body As MimeEntity) As MimeEntity
+        '添付ファイルなし
+        If AttachmentFileList.Count = 0 Then Return body
 
         '添付ファイルあり
         Dim multiPart = New Multipart("mixed")
-        multiPart.Add(documentPart)
+        multiPart.Add(body)
         For Each fPath In AttachmentFileList
             multiPart.Add(CreateAttachment(fPath))
         Next
 
         Return multiPart
-
-
     End Function
 
     ''' <summary>
